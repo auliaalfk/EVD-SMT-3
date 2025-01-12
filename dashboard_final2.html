@@ -1,0 +1,424 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DASHBOARD PENJUALAN</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.6.1/d3.min.js"></script>
+    <style>
+        body {
+            font-family: 'Arial', sans-serif;
+            background-color: #F7F7F7;
+            margin: 0;
+            padding: 20px;
+            color: #333;
+        }
+        .title-container {
+            text-align: center;
+            background-color: #F1C40F;
+            padding: 20px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+        }
+        h1 {
+            margin: 0;
+            font-size: 2.5em;
+        }
+        .presented-by {
+            font-size: 1.2em;
+            color: #4A90E2;
+            margin-top: 10px;
+            border: 2px solid rgba(74, 144, 226, 0.5);
+            border-radius: 5px;
+            padding: 10px;
+            display: inline-block;
+            text-align: left;
+        }
+        .charts-container {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 20px;
+            max-width: 1200px;
+            margin: auto;
+            justify-items: center;
+        }
+        .chart {
+            height: 300px;
+            width: 100%;
+            border-radius: 10px;
+            background-color: #FFFFFF;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+            padding: 10px;
+            transition: transform 0.3s, box-shadow 0.3s;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+        .chart:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 8px 16px rgba(0, 0, 0, 0.2);
+        }
+        .axis-label {
+            font-size: 12px;
+            fill: #666;
+        }
+        .tooltip {
+            position: absolute;
+            background-color: rgba(255, 255, 255, 0.9);
+            border: 1px solid #ccc;
+            padding: 8px;
+            font-size: 14px;
+            pointer-events: none;
+            display: none;
+            border-radius: 5px;
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
+        }
+        .line {
+            stroke: #ccc;
+            stroke-dasharray: 4;
+        }
+        .cursor-line {
+            stroke: #E94E77;
+            stroke-width: 1;
+            stroke-dasharray: 5, 5;
+            display: none;
+        }
+        .bar {
+            transition: fill 0.3s;
+        }
+        .bar:hover {
+            fill: #E94E77 !important;
+        }
+        .threshold-line {
+            stroke: rgba(255, 0, 0, 0.7);
+            stroke-width: 3;
+            stroke-dasharray: 5, 5;
+            transition: stroke 0.3s ease;
+        }
+        .threshold-line:hover {
+            stroke: rgba(255, 0, 0, 1);
+            stroke-width: 4;
+        }
+        .threshold-label {
+            fill: rgba(255, 0, 0, 0.8);
+            font-size: 12px;
+            font-weight: bold;
+            transition: opacity 0.3s ease;
+        }
+        .threshold-label:hover {
+            opacity: 1;
+        }
+    </style>
+</head>
+<body>
+    <div class="title-container">
+        <h1>DASHBOARD PENJUALAN</h1>
+        <div class="presented-by">Presented by: Aulia Latifa K (Sains Data A - 3323600030)</div>
+    </div>
+
+    <div class="charts-container">
+        <div class="chart" id="barChart"></div>
+        <div class="chart" id="pieChart"></div>
+        <div class="chart" id="scatterPlot"></div>
+        <div class="chart" id="lineChart"></div>
+    </div>
+
+    <div class="tooltip" id="tooltip"></div>
+
+    <script>
+        fetch('konekpenjualan.php')
+            .then(response => response.json())
+            .then(data => {
+                data.forEach(d => {
+                    d.transaction_date = new Date(d.transaction_date);
+                    d.sales_amount = +d.sales_amount;
+                    d.unit_price = +d.unit_price;
+
+                    if (isNaN(d.unit_price) || d.unit_price <= 0) {
+                        d.unit_price = null;
+                    }
+                });
+
+                // Bar Chart
+                const marginBar = { top: 20, right: 30, bottom: 50, left: 50 };
+                const widthBar = 400 - marginBar.left - marginBar.right;
+                const heightBar = 300 - marginBar.top - marginBar.bottom;
+
+                const svgBar = d3.select("#barChart")
+                    .append("svg")
+                    .attr("width", widthBar + marginBar.left + marginBar.right)
+                    .attr("height", heightBar + marginBar.top + marginBar.bottom)
+                    .append("g")
+                    .attr("transform", `translate(${marginBar.left},${marginBar.top})`);
+
+                const productSales = d3.rollups(data, v => d3.sum(v, d => d.sales_amount), d => d.product_name);
+                productSales.sort((a, b) => b[1] - a[1]);
+
+                const xBar = d3.scaleBand()
+                    .domain(productSales.map(d => d[0]))
+                    .range([0, widthBar])
+                    .padding(0.2);
+
+                const yBar = d3.scaleLinear()
+                    .domain([0, d3.max(productSales, d => d[1])])
+                    .range([heightBar, 0]);
+
+                svgBar.append("g")
+                    .attr("transform", `translate(0,${heightBar})`)
+                    .call(d3.axisBottom(xBar));
+
+                svgBar.append("g")
+                    .call(d3.axisLeft(yBar));
+
+                const tooltip = d3.select("#tooltip");
+                const barColors = ["#F7B7A3", "#B2B7E6", "#A5D8D4", "#F6E6B2", "#F7C6A0"];
+
+                svgBar.selectAll("rect")
+                    .data(productSales)
+                    .enter()
+                    .append("rect")
+                    .attr("class", "bar")
+                    .attr("x", d => xBar(d[0]))
+                    .attr("y", d => yBar(d[1]))
+                    .attr("width", xBar.bandwidth())
+                    .attr("height", d => heightBar - yBar(d[1]))
+                    .attr("fill", (d, i) => barColors[i % barColors.length])
+                    .on("mouseover", (event, d) => {
+                        tooltip.style("display", "block")
+                            .html(`
+                                <strong>Produk:</strong> ${d[0]}<br>
+                                <strong>Jumlah Penjualan:</strong> ${d[1]}
+                            `)
+                            .style("left", (event.pageX + 10) + "px")
+                            .style("top", (event.pageY - 10) + "px");
+                    })
+                    .on("mousemove", (event) => {
+                        tooltip.style("left", (event.pageX + 10) + "px")
+                            .style("top", (event.pageY - 10) + "px");
+                    })
+                    .on("mouseout", () => {
+                        tooltip.style("display", "none");
+                    });
+
+                svgBar.selectAll("text")
+                    .data(productSales)
+                    .enter()
+                    .append("text")
+                    .attr("x", d => xBar(d[0]) + xBar.bandwidth() / 2)
+                    .attr("y", d => yBar(d[1]) - 5) 
+                    .attr("text-anchor", "middle")
+                    .attr("fill", "#333")
+                    .text(d => d[0]); 
+
+                // Menambahkan garis threshold
+                const thresholdValue = 28.5; // Nilai threshold yang diubah
+                svgBar.append("line")
+                    .attr("class", "threshold-line")
+                    .attr("x1", 0)
+                    .attr("x2", widthBar)
+                    .attr("y1", yBar(thresholdValue))
+                    .attr("y2", yBar(thresholdValue));
+
+                svgBar.append("text")
+                    .attr("class", "threshold-label")
+                    .attr("x", widthBar - 60)
+                    .attr("y", yBar(thresholdValue) - 10)
+                    .text(`Threshold: ${thresholdValue}`);
+
+                // Pie Chart
+                const radius = Math.min(400, 300) / 2 - 20;
+                const svgPie = d3.select("#pieChart")
+                    .append("svg")
+                    .attr("width", 400)
+                    .attr("height", 300)
+                    .append("g")
+                    .attr("transform", `translate(${400 / 2},${300 / 2})`);
+
+                const pie = d3.pie()
+                    .value(d => d[1]);
+
+                const arc = d3.arc()
+                    .innerRadius(0)
+                    .outerRadius(radius);
+
+                svgPie.selectAll("path")
+                    .data(pie(productSales))
+                    .enter()
+                    .append("path")
+                    .attr("d", arc)
+                    .attr("fill", (d, i) => barColors[i % barColors.length])
+                    .attr("stroke", "white")
+                    .style("stroke-width", "2px")
+                    .on("mouseover", (event, d) => {
+                        tooltip.style("display", "block")
+                            .html(`
+                                <strong>Produk:</strong> ${d.data[0]}<br>
+                                <strong>Jumlah Penjualan:</strong> ${d.data[1]}
+                            `)
+                            .style("left", (event.pageX + 10) + "px")
+                            .style("top", (event.pageY - 10) + "px");
+                    })
+                    .on("mousemove", (event) => {
+                        tooltip.style("left", (event.pageX + 10) + "px")
+                            .style("top", (event.pageY - 10) + "px");
+                    })
+                    .on("mouseout", () => {
+                        tooltip.style("display", "none");
+                    });
+
+                // Scatter Plot
+                const marginScatter = { top: 20, right: 30, bottom: 50, left: 50 };
+                const widthScatter = 400 - marginScatter.left - marginScatter.right;
+                const heightScatter = 300 - marginScatter.top - marginScatter.bottom;
+
+                const svgScatter = d3.select("#scatterPlot")
+                    .append("svg")
+                    .attr("width", widthScatter + marginScatter.left + marginScatter.right)
+                    .attr("height", heightScatter + marginScatter.top + marginScatter.bottom)
+                    .append("g")
+                    .attr("transform", `translate(${marginScatter.left},${marginScatter.top})`);
+
+                const xScatter = d3.scaleTime()
+                    .domain(d3.extent(data, d => d.transaction_date))
+                    .range([0, widthScatter]);
+
+                const yScatter = d3.scaleLinear()
+                    .domain([0, d3.max(data, d => d.sales_amount)])
+                    .range([heightScatter, 0]);
+
+                svgScatter.append("g")
+                    .attr("transform", `translate(0,${heightScatter})`)
+                    .call(d3.axisBottom(xScatter).ticks(10))
+                    .append("text")
+                    .attr("class", "axis-label")
+                    .attr("x", widthScatter / 2)
+                    .attr("y", 40)
+                    .attr("fill", "#666")
+                    .text("Tanggal Transaksi");
+
+                svgScatter.append("g")
+                    .call(d3.axisLeft(yScatter))
+                    .append("text")
+                    .attr("class", "axis-label")
+                    .attr("x", -heightScatter / 2)
+                    .attr("y", -40)
+                    .attr("transform", "rotate(-90)")
+                    .attr("fill", "#666")
+                    .style("text-anchor", "middle")
+                    .text("Jumlah Penjualan");
+
+                svgScatter.selectAll("circle")
+                    .data(data)
+                    .enter()
+                    .append("circle")
+                    .attr("cx", d => xScatter(d.transaction_date))
+                    .attr("cy", d => yScatter(d.sales_amount))
+                    .attr("r", 5)
+                    .attr("fill", "#4A90E2")
+                    .style("opacity", 0.8)
+                    .on("mouseover", (event, d) => {
+                        tooltip.style("display", "block")
+                            .html(`
+                                <strong>Produk:</strong> ${d.product_name}<br>
+                                <strong>Jumlah:</strong> ${d.sales_amount}<br>
+                                <strong>Harga per Unit:</strong> ${d.unit_price !== null ? d.unit_price : 'N/A'}<br>
+                                <strong>Tanggal:</strong> ${d.transaction_date.toDateString()}
+                            `);
+                    })
+                    .on("mousemove", (event) => {
+                        tooltip.style("left", (event.pageX + 10) + "px")
+                            .style("top", (event.pageY - 10) + "px");
+                    })
+                    .on("mouseout", () => {
+                        tooltip.style("display", "none");
+                    });
+
+                // Line Chart
+                const marginLine = { top: 20, right: 30, bottom: 50, left: 50 };
+                const widthLine = 400 - marginLine.left - marginLine.right;
+                const heightLine = 300 - marginLine.top - marginLine.bottom;
+
+                const svgLine = d3.select("#lineChart")
+                    .append("svg")
+                    .attr("width", widthLine + marginLine.left + marginLine.right)
+                    .attr("height", heightLine + marginLine.top + marginLine.bottom)
+                    .append("g")
+                    .attr("transform", `translate(${marginLine.left},${marginLine.top})`);
+
+                const lineData = d3.rollups(data, v => d3.sum(v, d => d.sales_amount), d => d.transaction_date.toISOString().split('T')[0]);
+                const parsedLineData = lineData.map(d => ({ date: new Date(d[0]), sales: d[1] }));
+
+                const xLine = d3.scaleTime()
+                    .domain(d3.extent(parsedLineData, d => d.date))
+                    .range([0, widthLine]);
+
+                const yLine = d3.scaleLinear()
+                    .domain([0, d3.max(parsedLineData, d => d.sales)])
+                    .range([heightLine, 0]);
+
+                svgLine.append("g")
+                    .attr("transform", `translate(0,${heightLine})`)
+                    .call(d3.axisBottom(xLine).ticks(10))
+                    .append("text")
+                    .attr("class", "axis-label")
+                    .attr("x", widthLine / 2)
+                    .attr("y", 40)
+                    .attr("fill", "#666")
+                    .text("Tanggal Transaksi");
+
+                svgLine.append("g")
+                    .call(d3.axisLeft(yLine))
+                    .append("text")
+                    .attr("class", "axis-label")
+                    .attr("x", -heightLine / 2)
+                    .attr("y", -40)
+                    .attr("transform", "rotate(-90)")
+                    .attr("fill", "#666")
+                    .style("text-anchor", "middle")
+                    .text("Jumlah Penjualan");
+
+                const line = d3.line()
+                    .x(d => xLine(d.date))
+                    .y(d => yLine(d.sales));
+
+                svgLine.append("path")
+                    .data([parsedLineData])
+                    .attr("fill", "none")
+                    .attr("stroke", "#4A90E2")
+                    .attr("stroke-width", 2)
+                    .attr("d", line);
+
+                const lineCursor = svgLine.append("line")
+                    .attr("class", "cursor-line")
+                    .attr("y1", 0)
+                    .attr("y2", heightLine);
+
+                svgLine.on("mousemove", (event) => {
+                    const mouseX = d3.pointer(event)[0];
+                    lineCursor.style("display", "inline")
+                        .attr("x1", mouseX)
+                        .attr("x2", mouseX);
+
+                    const xDate = xLine.invert(mouseX);
+                    const closestData = parsedLineData.reduce((prev, curr) => {
+                        return (Math.abs(curr.date - xDate) < Math.abs(prev.date - xDate) ? curr : prev);
+                    });
+
+                    tooltip.style("display", "block")
+                        .html(`
+                            <strong>Tanggal:</strong> ${closestData.date.toDateString()}<br>
+                            <strong>Jumlah Penjualan:</strong> ${closestData.sales}
+                        `)
+                        .style("left", (event.pageX + 10) + "px")
+                        .style("top", (event.pageY - 10) + "px");
+                })
+                .on("mouseout", () => {
+                    lineCursor.style("display", "none");
+                    tooltip.style("display", "none");
+                });
+
+            })
+            .catch(error => console.error('Error:', error));
+    </script>
+</body>
+</html>
